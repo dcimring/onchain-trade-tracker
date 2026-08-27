@@ -1,10 +1,18 @@
 # Onchain Trade Tracker
 
-Track your onchain trades across multiple wallets and see PnL, powered by the
-[Zerion API](https://developers.zerion.io). Syncs swap transactions into a local
-SQLite ledger, computes average entry price (using the USD value of what you sold
-at swap time), and shows current value plus realized/unrealized profit — with a
-cross-check against Zerion's own PnL numbers.
+![Onchain Trade Tracker](.github/social-preview.png)
+
+A self-hosted **crypto portfolio tracker** and **DeFi PnL dashboard** for onchain
+trades across multiple wallets, powered by the [Zerion API](https://developers.zerion.io).
+It syncs your DEX swap transactions into a local SQLite ledger, computes **cost
+basis** and **average entry price** (using the USD value of what you sold at swap
+time), and shows current value plus **realized and unrealized profit and loss** —
+cross-checked against Zerion's own PnL numbers.
+
+Works on any chain Zerion indexes — Ethereum, Base, Arbitrum, Optimism, Polygon,
+Solana, Robinhood Chain, and 30+ more — with no account, no subscription, and no
+data leaving your machine. A free, open-source alternative to paid trade-PnL
+features in portfolio apps.
 
 ## Setup
 
