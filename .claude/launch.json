@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tracker",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "tracker.app:app"],
+      "port": 8000,
+      "autoPort": false
+    }
+  ]
+}

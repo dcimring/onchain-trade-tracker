@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onchain Trade Tracker</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  button { background: var(--accent); color: #0d1117; border: 0; border-radius: 6px;
+           padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 14px; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .num { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; white-space: nowrap; }
+  th, td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  th:first-child, td:first-child { text-align: left; }
+  tr:last-child td { border-bottom: 0; }
+  .pos { color: var(--green); } .neg { color: var(--red); } .muted { color: var(--muted); }
+  .sym { font-weight: 700; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); }
+  .badge.ok { color: var(--green); border-color: var(--green); }
+  .badge.warn { color: var(--red); border-color: var(--red); }
+  a { color: var(--accent); text-decoration: none; }
+  #status { color: var(--muted); font-size: 13px; margin-left: 12px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📈 Onchain Trade Tracker</h1>
+    <div>
+      <span id="status"></span>
+      <button id="syncBtn" onclick="doSync()">Sync</button>
+    </div>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <h2>Positions</h2>
+  <div class="tablewrap"><table id="positionsTable">
+    <thead><tr>
+      <th>Token</th><th>Qty</th><th>Avg entry</th><th>Price</th><th>Value</th>
+      <th>Unrealized PnL</th><th>Realized PnL</th><th>Trades</th><th>Zerion check</th>
+    </tr></thead>
+    <tbody><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+  </table></div>
+
+  <h2>Trades</h2>
+  <div class="tablewrap"><table id="tradesTable">
+    <thead><tr>
+      <th>Date</th><th>Chain</th><th>Sold</th><th>→</th><th>Bought</th>
+      <th>USD in</th><th>USD out</th><th>Fee</th><th>Tx</th>
+    </tr></thead>
+    <tbody><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+  </table></div>
+</div>
+
+<script>
+const EXPLORERS = {
+  ethereum: "https://etherscan.io/tx/", base: "https://basescan.org/tx/",
+  arbitrum: "https://arbiscan.io/tx/", optimism: "https://optimistic.etherscan.io/tx/",
+  polygon: "https://polygonscan.com/tx/", "binance-smart-chain": "https://bscscan.com/tx/",
+  avalanche: "https://snowtrace.io/tx/", solana: "https://solscan.io/tx/",
+};
+
+const usd = (v, digits) => v == null ? "—" :
+  v.toLocaleString("en-US", { style: "currency", currency: "USD",
+    minimumFractionDigits: digits ?? 2, maximumFractionDigits: digits ?? 2 });
+const price = v => v == null ? "—" : v >= 1 ? usd(v) : "$" + v.toPrecision(4);
+const qty = v => v == null ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: 4 });
+const pnlCell = (v, pct) => {
+  if (v == null) return '<td class="muted">—</td>';
+  const cls = v >= 0 ? "pos" : "neg";
+  const p = pct != null ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)` : "";
+  return `<td class="${cls}">${usd(v)}${p}</td>`;
+};
+
+async function loadPositions() {
+  const tbody = document.querySelector("#positionsTable tbody");
+  try {
+    const res = await fetch("/api/positions");
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const { positions, totals } = await res.json();
+
+    const totalPnl = totals.unrealized_pnl + totals.realized_pnl;
+    document.getElementById("cards").innerHTML = [
+      ["Current value", usd(totals.value), ""],
+      ["Cost basis", usd(totals.cost_basis), ""],
+      ["Unrealized PnL", usd(totals.unrealized_pnl), totals.unrealized_pnl >= 0 ? "pos" : "neg"],
+      ["Realized PnL", usd(totals.realized_pnl), totals.realized_pnl >= 0 ? "pos" : "neg"],
+      ["Total PnL", usd(totalPnl), totalPnl >= 0 ? "pos" : "neg"],
+    ].map(([l, v, c]) => `<div class="card"><div class="label">${l}</div><div class="num ${c}">${v}</div></div>`).join("");
+
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No positions yet — hit Sync to pull your trades.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => {
+      let check = '<span class="badge muted">n/a</span>';
+      if (p.zerion) {
+        const zTotal = (p.zerion.realized_gain || 0) + (p.zerion.unrealized_gain || 0);
+        const ours = (p.realized_pnl || 0) + (p.unrealized_pnl || 0);
+        // Prices move between the positions and pnl API calls, so compare
+        // against 1% of position value, not 1% of the (much smaller) gain.
+        const close = Math.abs(zTotal - ours) <= Math.max(1, (p.current_value ?? Math.abs(zTotal)) * 0.01);
+        check = `<span class="badge ${close ? "ok" : "warn"}" title="Zerion: ${usd(zTotal)}${p.zerion.avg_buy_price != null ? ", avg buy " + price(p.zerion.avg_buy_price) : ""}">${close ? "✓" : "≠"} ${usd(zTotal)}</span>`;
+      }
+      const untracked = p.untracked_sold_qty > 1e-9
+        ? ` title="${qty(p.untracked_sold_qty)} sold units had no tracked cost basis"` : "";
+      return `<tr>
+        <td class="sym"${untracked}>${p.symbol}${untracked ? " *" : ""}</td>
+        <td>${qty(p.quantity)}</td>
+        <td>${price(p.avg_entry_price)}</td>
+        <td>${price(p.current_price)}</td>
+        <td>${usd(p.current_value)}</td>
+        ${pnlCell(p.unrealized_pnl, p.unrealized_pnl_pct)}
+        ${pnlCell(p.realized_pnl !== 0 ? p.realized_pnl : null)}
+        <td class="muted">${p.trade_count}</td>
+        <td>${check}</td>
+      </tr>`;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty">⚠️ ${e.message}</td></tr>`;
+  }
+}
+
+async function loadTrades() {
+  const tbody = document.querySelector("#tradesTable tbody");
+  try {
+    const res = await fetch("/api/trades");
+    const { trades } = await res.json();
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">No trades synced yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.slice().reverse().map(t => {
+      const explorer = EXPLORERS[t.chain];
+      const link = explorer && t.tx_hash
+        ? `<a href="${explorer}${t.tx_hash}" target="_blank">${t.tx_hash.slice(0, 8)}…</a>`
+        : `<span class="muted">${(t.tx_hash || "").slice(0, 8)}…</span>`;
+      return `<tr>
+        <td>${t.timestamp ? new Date(t.timestamp).toLocaleString() : "—"}</td>
+        <td class="muted">${t.chain || "—"}</td>
+        <td>${qty(t.sold_quantity)} <span class="sym">${t.sold_symbol || ""}</span></td>
+        <td class="muted">→</td>
+        <td>${qty(t.bought_quantity)} <span class="sym">${t.bought_symbol || ""}</span></td>
+        <td>${usd(t.sold_usd_value)}</td>
+        <td>${usd(t.bought_usd_value)}</td>
+        <td class="muted">${usd(t.fee_usd)}</td>
+        <td>${link}</td>
+      </tr>`;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="9" class="empty">⚠️ ${e.message}</td></tr>`;
+  }
+}
+
+async function doSync() {
+  const btn = document.getElementById("syncBtn");
+  const status = document.getElementById("status");
+  btn.disabled = true;
+  status.textContent = "Syncing…";
+  try {
+    const res = await fetch("/api/sync", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    const total = Object.values(body.synced).reduce((a, b) => a + b, 0);
+    status.textContent = `Synced ${total} trade${total === 1 ? "" : "s"}`;
+    await Promise.all([loadPositions(), loadTrades()]);
+  } catch (e) {
+    status.textContent = `⚠️ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+loadPositions();
+loadTrades();
+</script>
+</body>
+</html>
