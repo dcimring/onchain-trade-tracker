@@ -38,11 +38,12 @@ def trades(wallet: str | None = None, token: str | None = None) -> dict:
     conn = db.get_conn()
     try:
         rows = db.get_trades(conn, wallet=wallet, token=token)
+        dividends = db.get_dividends(conn, wallet=wallet, token=token)
     finally:
         conn.close()
     for r in rows:
         r.pop("raw_json", None)
-    return {"trades": rows}
+    return {"trades": rows, "dividends": dividends}
 
 
 def _current_holdings(client: ZerionClient, wallet_list: list[str]) -> dict[str, dict]:
@@ -100,10 +101,11 @@ def positions() -> dict:
     conn = db.get_conn()
     try:
         trades = db.get_trades(conn)
+        dividends = db.get_dividends(conn)
     finally:
         conn.close()
 
-    computed = pnl.compute_positions(trades)
+    computed = pnl.compute_positions(trades, dividends)
     holdings = _current_holdings(client, wallet_list)
 
     fungible_ids = [p["fungible_id"] for p in computed.values() if p["fungible_id"]]
@@ -115,9 +117,17 @@ def positions() -> dict:
         if p["total_bought_qty"] <= 0 and p["realized_pnl"] == 0:
             continue
         held = holdings.get(symbol, {})
-        current_value = held.get("value")
         current_price = held.get("price")
-        unrealized = (current_value - p["cost_basis"]) if current_value is not None and p["quantity"] > 1e-12 else None
+        # Value the *tracked* position (units bought via synced trades), not the
+        # raw wallet balance, which can include untracked holdings such as a
+        # stablecoin deposit that was never part of a swap.
+        current_value = None
+        if p["quantity"] > 1e-12:
+            if current_price is not None:
+                current_value = p["quantity"] * current_price
+            elif held.get("value") is not None:
+                current_value = held["value"]
+        unrealized = (current_value - p["cost_basis"]) if current_value is not None else None
         row = {
             "symbol": symbol,
             "name": held.get("name"),
@@ -131,6 +141,7 @@ def positions() -> dict:
             "unrealized_pnl": unrealized,
             "unrealized_pnl_pct": (unrealized / p["cost_basis"] * 100) if unrealized is not None and p["cost_basis"] > 0 else None,
             "realized_pnl": p["realized_pnl"],
+            "dividend_income": p["dividend_income"],
             "trade_count": p["trade_count"],
             "untracked_sold_qty": p["untracked_sold_qty"],
             "zerion": zerion_checks.get(p["fungible_id"] or ""),

@@ -31,10 +31,10 @@ class ZerionClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_trade_transactions(self, address: str, min_mined_at_ms: int | None = None) -> list[dict]:
-        """All 'trade' (swap) transactions for a wallet, following pagination."""
+    def get_transactions(self, address: str, operation_type: str, min_mined_at_ms: int | None = None) -> list[dict]:
+        """All transactions of one operation type ('trade' = swap, 'receive') for a wallet, following pagination."""
         params: dict = {
-            "filter[operation_types]": "trade",
+            "filter[operation_types]": operation_type,
             "filter[asset_types]": "fungible",
             "filter[trash]": "only_non_trash",
             "page[size]": 100,

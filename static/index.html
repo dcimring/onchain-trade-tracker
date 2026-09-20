@@ -84,11 +84,11 @@ const usd = (v, digits) => v == null ? "—" :
     minimumFractionDigits: digits ?? 2, maximumFractionDigits: digits ?? 2 });
 const price = v => v == null ? "—" : v >= 1 ? usd(v) : "$" + v.toPrecision(4);
 const qty = v => v == null ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: 4 });
-const pnlCell = (v, pct) => {
+const pnlCell = (v, pct, title) => {
   if (v == null) return '<td class="muted">—</td>';
   const cls = v >= 0 ? "pos" : "neg";
   const p = pct != null ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)` : "";
-  return `<td class="${cls}">${usd(v)}${p}</td>`;
+  return `<td class="${cls}"${title ? ` title="${title}"` : ""}>${usd(v)}${p}${title ? " *" : ""}</td>`;
 };
 
 async function loadPositions() {
@@ -130,7 +130,8 @@ async function loadPositions() {
         <td>${price(p.current_price)}</td>
         <td>${usd(p.current_value)}</td>
         ${pnlCell(p.unrealized_pnl, p.unrealized_pnl_pct)}
-        ${pnlCell(p.realized_pnl !== 0 ? p.realized_pnl : null)}
+        ${pnlCell(p.realized_pnl !== 0 ? p.realized_pnl : null, null,
+          p.dividend_income > 0 ? `includes ${usd(p.dividend_income)} of dividends received` : "")}
         <td class="muted">${p.trade_count}</td>
         <td>${check}</td>
       </tr>`;
@@ -144,7 +145,10 @@ async function loadTrades() {
   const tbody = document.querySelector("#tradesTable tbody");
   try {
     const res = await fetch("/api/trades");
-    const { trades } = await res.json();
+    const { trades, dividends } = await res.json();
+    // Dividends share the table: nothing sold, paid by the source token.
+    trades.push(...(dividends || []).map(d => ({ ...d, dividend: true })));
+    trades.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
     if (!trades.length) {
       tbody.innerHTML = '<tr><td colspan="9" class="empty">No trades synced yet.</td></tr>';
       return;
@@ -154,6 +158,17 @@ async function loadTrades() {
       const link = explorer && t.tx_hash
         ? `<a href="${explorer}${t.tx_hash}" target="_blank">${t.tx_hash.slice(0, 8)}…</a>`
         : `<span class="muted">${(t.tx_hash || "").slice(0, 8)}…</span>`;
+      if (t.dividend) return `<tr>
+        <td>${new Date(t.timestamp).toLocaleString()}</td>
+        <td class="muted">${t.chain || "—"}</td>
+        <td class="muted">dividend from <span class="sym">${t.source_symbol}</span></td>
+        <td class="muted">→</td>
+        <td>${qty(t.quantity)} <span class="sym">${t.symbol}</span></td>
+        <td class="muted">—</td>
+        <td>${usd(t.usd_value)}</td>
+        <td class="muted">—</td>
+        <td>${link}</td>
+      </tr>`;
       return `<tr>
         <td>${t.timestamp ? new Date(t.timestamp).toLocaleString() : "—"}</td>
         <td class="muted">${t.chain || "—"}</td>

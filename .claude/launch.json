@@ -4,8 +4,26 @@
     {
       "name": "tracker",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "uvicorn", "tracker.app:app"],
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "tracker.app:app"
+      ],
       "port": 8000,
+      "autoPort": false
+    },
+    {
+      "name": "tracker-dev",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "tracker.app:app",
+        "--reload",
+        "--port",
+        "8001"
+      ],
+      "port": 8001,
       "autoPort": false
     }
   ]
